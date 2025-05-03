@@ -259,7 +259,7 @@ const deployedContracts = {
   sepolia: {
     Counter: {
       address:
-        "0x4342f4aed18d00d19bd725398c4a745326930f606f2134cb33999f03524c336",
+        "0x707f9f1ed9b1628bd3e27174de687c04ad59dca2f9c030a7d915c71d92cf889",
       abi: [
         {
           type: "impl",
@@ -505,7 +505,7 @@ const deployedContracts = {
         },
       ],
       classHash:
-        "0x74960c43d4c10b65249e0de520308756aff578404320b94080ae223801354a7",
+        "0x750ebe11c9e237bc5da0bc10bcb665c4c183582a75735ca1df0e973f42ad941",
     },
   },
 } as const;
