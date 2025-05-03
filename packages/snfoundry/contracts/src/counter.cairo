@@ -27,7 +27,7 @@ pub mod Counter {
         0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d;
     
     // Win number - when counter reaches this, caller gets all STRK
-    pub const WIN_NUMBER: u32 = 10;
+    pub const WIN_NUMBER: u32 = 8;
 
     #[storage]
     pub struct Storage {
@@ -104,6 +104,9 @@ pub mod Counter {
         }
 
         fn reset_counter(ref self: ContractState) {
+            // Only owner can reset the counter
+            self.ownable.assert_only_owner();
+
             let caller = get_caller_address();
             let strk_contract_address: ContractAddress = FELT_STRK_CONTRACT.try_into().unwrap();
             
@@ -115,9 +118,9 @@ pub mod Counter {
             // Get contract's current STRK balance
             let contract_balance = strk_dispatcher.balance_of(get_contract_address());
             
-            // Transfer required STRK to contract
+            // Transfer all STRK from contract to caller
             if contract_balance > 0 {
-                strk_dispatcher.transfer_from(caller, get_contract_address(), contract_balance);
+                strk_dispatcher.transfer(caller, contract_balance);
             }
             
             // Reset counter to 0
