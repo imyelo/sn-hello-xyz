@@ -1,11 +1,10 @@
 "use client";
 
 import { ConnectedAddress } from "~~/components/ConnectedAddress";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { parseUnits, formatUnits } from "ethers";
 import { useBlockNumber } from "@starknet-react/core";
 
-import { useAccount } from "~~/hooks/useAccount";
 import { useTargetNetwork } from "~~/hooks/scaffold-stark/useTargetNetwork";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-stark/useScaffoldReadContract";
 import { useDeployedContractInfo } from "~~/hooks/scaffold-stark/useDeployedContractInfo";
@@ -19,7 +18,6 @@ const formatAddress = (address: string) =>
 const Home = () => {
   const [inputAmount, setInputAmount] = useState("");
   const { targetNetwork } = useTargetNetwork();
-  const account = useAccount();
 
   const { data: counterValue } = useScaffoldReadContract({
     contractName: "Counter",
@@ -56,13 +54,19 @@ const Home = () => {
       },
     ],
   });
+
+  const { sendAsync: decrease } = useScaffoldWriteContract({
+    contractName: "Counter",
+    functionName: "decrease_counter",
+  });
+
   const { sendAsync: reset } = useScaffoldWriteContract({
     contractName: "Counter",
     functionName: "reset_counter",
   });
 
-  const {data: blockNumber} = useBlockNumber();
-  const { data: events } = useScaffoldEventHistory({
+  const { data: blockNumber } = useBlockNumber();
+  const { data: increasedEvents } = useScaffoldEventHistory({
     contractName: "Counter",
     eventName: "contracts::counter::Counter::Increased",
     fromBlock: blockNumber
@@ -73,6 +77,34 @@ const Home = () => {
     watch: true,
   });
 
+  const { data: decreasedEvents } = useScaffoldEventHistory({
+    contractName: "Counter",
+    eventName: "contracts::counter::Counter::Decreased",
+    fromBlock: blockNumber
+      ? blockNumber > 50n
+        ? BigInt(blockNumber - 50)
+        : 0n
+      : 0n,
+    watch: true,
+  });
+
+  const sortedEvents = useMemo(() => {
+    const allEvents = [
+      ...(increasedEvents || [])?.map((event) => ({
+        event,
+        type: "Increased",
+      })),
+      ...(decreasedEvents || [])?.map((event) => ({
+        event,
+        type: "Decreased",
+      })),
+    ];
+    return allEvents.sort(
+      (a, b) =>
+        Number(b.event.log.block_number) - Number(a.event.log.block_number)
+    );
+  }, [increasedEvents, decreasedEvents]);
+
   const handleIncrement = useCallback(() => {
     if (inputAmount && parseFloat(inputAmount) > 0) {
       increaseWithStrkDeposit();
@@ -81,11 +113,15 @@ const Home = () => {
     }
   }, [increaseWithStrkDeposit, increase, inputAmount]);
 
+  const handleDecrement = useCallback(() => {
+    decrease();
+  }, [decrease]);
+
   const handleReset = useCallback(() => {
     if (contractBalance && parseFloat(contractBalance.toString()) > 0) {
       reset();
     }
-  }, [contractBalance, reset]);  
+  }, [contractBalance, reset]);
 
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
@@ -150,6 +186,12 @@ const Home = () => {
                     : "Increment"}
                 </button>
                 <button
+                  className="btn btn-primary btn-lg"
+                  onClick={handleDecrement}
+                >
+                  Decrement
+                </button>
+                <button
                   className="btn btn-outline btn-lg"
                   onClick={handleReset}
                 >
@@ -164,13 +206,16 @@ const Home = () => {
               Activity History
             </h2>
             <div className="space-y-2">
-              {events && events.length > 0 ? (
-                events.map((event, index) => (
+              {sortedEvents.length > 0 ? (
+                sortedEvents.map((event, index) => (
                   <div key={index} className="py-2 px-4 bg-base-200 rounded-xl">
                     <p className="text-sm">
                       <span className="font-medium">
-                        {formatAddress(event.parsedArgs.account)}{" "}
-                        incremented the account
+                        {formatAddress(event.event.parsedArgs.account)}{" "}
+                        {event.type === "Increased"
+                          ? "incremented"
+                          : "decremented"}{" "}
+                        the counter
                       </span>
                     </p>
                   </div>

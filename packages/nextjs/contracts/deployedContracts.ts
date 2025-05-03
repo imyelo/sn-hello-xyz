@@ -7,7 +7,7 @@ const deployedContracts = {
   devnet: {
     Counter: {
       address:
-        "0x16baaf5f724ff195ba9c1b701f0facfd2ae7c36e0c73320feee25213e423660",
+        "0x783fb26f53c9e2e0c24730231223536110c16d8d44de7b077f4e28f91bf9c68",
       abi: [
         {
           type: "impl",
@@ -128,6 +128,10 @@ const deployedContracts = {
           name: "constructor",
           inputs: [
             {
+              name: "init_value",
+              type: "core::integer::u32",
+            },
+            {
               name: "owner",
               type: "core::starknet::contract_address::ContractAddress",
             },
@@ -232,7 +236,7 @@ const deployedContracts = {
         },
       ],
       classHash:
-        "0x765c46e00eab280a45f8eb8064df1a0e27cf110df51d52b8bc20fbcc194462b",
+        "0x74960c43d4c10b65249e0de520308756aff578404320b94080ae223801354a7",
     },
   },
 } as const;
