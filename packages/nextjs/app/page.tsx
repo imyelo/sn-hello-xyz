@@ -118,10 +118,10 @@ const Home = () => {
   }, [decrease]);
 
   const handleReset = useCallback(() => {
-    if (contractBalance && parseFloat(contractBalance.toString()) > 0) {
+    if (counterValue && Number(counterValue) > 0) {
       reset();
     }
-  }, [contractBalance, reset]);
+  }, [counterValue, reset]);
 
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
