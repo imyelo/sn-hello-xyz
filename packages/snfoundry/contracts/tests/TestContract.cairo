@@ -4,6 +4,7 @@ use contracts::counter::{
     ICounterSafeDispatcherTrait,
 };
 use openzeppelin_access::ownable::interface::{IOwnableDispatcher, IOwnableDispatcherTrait};
+use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
 use snforge_std::EventSpyAssertionsTrait;
 use snforge_std::{
     ContractClassTrait, DeclareResultTrait, declare, spy_events, start_cheat_caller_address,
@@ -12,6 +13,7 @@ use snforge_std::{
 use starknet::{ContractAddress};
 
 const ZERO_COUNT: u32 = 0;
+const DEFAULT_STRK_AMOUNT: u256 = 5000000000000000000; // 5 STRK
 
 // Test Accounts
 fn OWNER() -> ContractAddress {
@@ -22,9 +24,28 @@ fn USER_1() -> ContractAddress {
     'USER_1'.try_into().unwrap()
 }
 
+fn STRK() -> ContractAddress {
+    Counter::FELT_STRK_CONTRACT.try_into().unwrap()
+}
+
+pub const STRK_TOKEN_HOLD_ADDRESS: felt252 =
+    0x06ded1030f8566ae32c8e8277ee160e3e1a5fdb4aeec0a2fbe41e51beacd6843;
+
+fn STRK_TOKEN_HOLD() -> ContractAddress {
+    STRK_TOKEN_HOLD_ADDRESS.try_into().unwrap()
+}
+
+fn transfer(from: ContractAddress, to: ContractAddress, amount: u256) {
+    let strk_dispatcher = IERC20Dispatcher { contract_address: STRK() };
+    start_cheat_caller_address(STRK(), from);
+    strk_dispatcher.transfer(to, amount);
+    stop_cheat_caller_address(STRK());
+}
 
 // util deploy function
-fn __deploy__(init_value: u32) -> (ICounterDispatcher, IOwnableDispatcher, ICounterSafeDispatcher) {
+fn __deploy__(
+    init_value: u32,
+) -> (ICounterDispatcher, IOwnableDispatcher, ICounterSafeDispatcher, IERC20Dispatcher) {
     // declare contract
     let contract_class = declare("Counter").expect('failed to declare').contract_class();
 
@@ -36,27 +57,37 @@ fn __deploy__(init_value: u32) -> (ICounterDispatcher, IOwnableDispatcher, ICoun
     // deploy contract
     let (contract_address, _) = contract_class.deploy(@calldata).expect('failed to deploy');
 
+    let strk_dispatcher = IERC20Dispatcher { contract_address: STRK() };
+
+    // prepare STRK to contract
+    transfer(STRK_TOKEN_HOLD(), contract_address, DEFAULT_STRK_AMOUNT);
+
     // return values
     let counter = ICounterDispatcher { contract_address };
     let ownable = IOwnableDispatcher { contract_address };
     let safe_dispatcher = ICounterSafeDispatcher { contract_address };
-    (counter, ownable, safe_dispatcher)
+    (counter, ownable, safe_dispatcher, strk_dispatcher)
 }
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_counter_deployment() {
-    let (counter, ownable, _) = __deploy__(ZERO_COUNT);
+    let (counter, ownable, _, _) = __deploy__(ZERO_COUNT);
     // get current count
     let count_1 = counter.get_counter();
 
-   
-    assert(count_1 == ZERO_COUNT, 'count not set');  // Verify that the counter value is by exactly 0.
-    assert(ownable.owner() == OWNER(), 'owner not set');  // Verify that the counter contract owner matches our Test Owner account
+    assert(
+        count_1 == ZERO_COUNT, 'count not set',
+    ); // Verify that the counter value is by exactly 0.
+    assert(
+        ownable.owner() == OWNER(), 'owner not set',
+    ); // Verify that the counter contract owner matches our Test Owner account
 }
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_increase_counter() {
-    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    let (counter, _, _, _) = __deploy__(ZERO_COUNT);
     // get current count
     let count_1 = counter.get_counter();
 
@@ -73,11 +104,78 @@ fn test_increase_counter() {
     assert(count_2 == count_1 + 1, 'invalid count');
 }
 
+#[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
+fn test_win() {
+    let (counter, _, _, strk_dispatcher) = __deploy__(Counter::WIN_NUMBER - 1);
+
+    // get current count
+    let count_1 = counter.get_counter();
+    assert(count_1 == Counter::WIN_NUMBER - 1, 'count not set');
+
+    // get balance before
+    let counter_balance_before = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_before == DEFAULT_STRK_AMOUNT, 'balance not set');
+    let winner_balance_before = strk_dispatcher.balance_of(USER_1());
+    assert(winner_balance_before == 0, 'invalid winner balance');
+
+    // state-changing txn
+    start_cheat_caller_address(counter.contract_address, USER_1());
+    start_cheat_caller_address(STRK(), counter.contract_address);
+    counter.increase_counter();
+    stop_cheat_caller_address(STRK());
+    stop_cheat_caller_address(counter.contract_address);
+
+    // check current count
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 + 1, 'invalid count');
+
+    // check balance after
+    let counter_balance_after = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_after == 0, 'balance not cleared');
+    let winner_balance = strk_dispatcher.balance_of(USER_1());
+    assert(winner_balance == counter_balance_before, 'winner balance not added');
+}
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
+fn test_win_with_zero_prize() {
+    let (counter, _, _, strk_dispatcher) = __deploy__(Counter::WIN_NUMBER - 1);
+    transfer(counter.contract_address, STRK_TOKEN_HOLD(), DEFAULT_STRK_AMOUNT);
+
+    // get current count
+    let count_1 = counter.get_counter();
+    assert(count_1 == Counter::WIN_NUMBER - 1, 'count not set');
+
+    // get balance before
+    let counter_balance_before = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_before == 0, 'balance not cleared');
+    let winner_balance_before = strk_dispatcher.balance_of(USER_1());
+    assert(winner_balance_before == 0, 'invalid winner balance');
+
+    // state-changing txn
+    start_cheat_caller_address(counter.contract_address, USER_1());
+    start_cheat_caller_address(STRK(), counter.contract_address);
+    counter.increase_counter();
+    stop_cheat_caller_address(STRK());
+    stop_cheat_caller_address(counter.contract_address);
+
+    // check current count
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 + 1, 'invalid count');
+
+    // check balance after
+    let counter_balance_after = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_after == 0, 'balance not cleared');
+    let winner_balance = strk_dispatcher.balance_of(USER_1());
+    assert(winner_balance == 0, 'unexpected winner balance');
+}
+
+#[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_emitted_increased_event() {
     // Deploy the `counter` contract starting from ZERO_COUNT (usually 0).
-    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    let (counter, _, _, _) = __deploy__(ZERO_COUNT);
 
     // Create a spy instance to capture and inspect emitted events during the test.
     let mut spy = spy_events();
@@ -115,13 +213,14 @@ fn test_emitted_increased_event() {
         )
 }
 
-
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 #[feature("safe_dispatcher")]
 fn test_safe_panic_decrease_counter() {
     // Deploy a new instance of the `counter` contract starting at 0,
-    // and retrieve the `safe_dispatcher`, which enables safe function calls to handle error gracefully.
-    let (counter, _, safe_dispatcher) = __deploy__(ZERO_COUNT);
+    // and retrieve the `safe_dispatcher`, which enables safe function calls to handle error
+    // gracefully.
+    let (counter, _, safe_dispatcher, _) = __deploy__(ZERO_COUNT);
 
     // Ensure the counter is initialized correctly to 0 before proceeding.
     assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
@@ -131,22 +230,23 @@ fn test_safe_panic_decrease_counter() {
     match safe_dispatcher.decrease_counter() {
         // If the decrease_counter perhaps succeeds in any way, fail the test with a panic.
         Result::Ok(_) => panic!("cannot decrease 0"),
-
         // If it fails (as expected), check that the error message is correct.
         // Note: `e` is an array of error messages.
         // We access the first error using either `*e[0]` or `*e.at(0)`.
-        // Both are valid and give the value at index 0 — because we're interested in the first error message.
+        // Both are valid and give the value at index 0 — because we're interested in the first
+        // error message.
         Result::Err(e) => assert(*e[0] == 'Decreasing Empty counter', *e.at(0)),
     }
 }
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 #[should_panic(
     expected: 'Decreasing Empty counter',
 )] // This attribute marks the test as *expected to panic*.
 fn test_panic_decrease_counter() {
     // Deploy the `counter` contract initialized at ZERO_COUNT
-    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    let (counter, _, _, _) = __deploy__(ZERO_COUNT);
 
     // Confirm that the counter starts at 0 to ensure we're testing the edge case correctly.
     assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
@@ -157,13 +257,13 @@ fn test_panic_decrease_counter() {
     counter.decrease_counter()
 }
 
-
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_successful_decrease_counter() {
     // Deploy a `counter` contract instance, starting with an initial count of 5.
     // We ignore the other returned values (like owner and dispatcher) since we don't need them for
     // this test.
-    let (counter, _, _) = __deploy__(5);
+    let (counter, _, _, _) = __deploy__(5);
 
     // Get the initial counter value after deployment and verify it's set to 5.
     let count_1 = counter.get_counter();
@@ -180,9 +280,10 @@ fn test_successful_decrease_counter() {
 }
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_emitted_decresed_event() {
     // Deploy the `counter` contract starting from ZERO_COUNT with initial deploy value of 5.
-    let (counter, _, _) = __deploy__(5);
+    let (counter, _, _, _) = __deploy__(5);
 
     // Create a spy instance to track and inspect emitted events during the test.
     let mut spy = spy_events();
@@ -219,8 +320,8 @@ fn test_emitted_decresed_event() {
         );
 }
 
-
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 // This attribute enables the use of the `safe_dispatcher` feature,
 // which allows us to safely call external functions and handle errors gracefully.
 #[feature("safe_dispatcher")]
@@ -228,7 +329,7 @@ fn test_safe_panic_reset_counter_by_non_owner() {
     // Deploy an instance of the `counter` contract with an initial count of ZERO_COUNT.
     // We also extract the `safe_dispatcher`, a special contract interface that lets us call methods
     // safely.
-    let (counter, _, safe_dispatcher) = __deploy__(ZERO_COUNT);
+    let (counter, _, safe_dispatcher, _) = __deploy__(ZERO_COUNT);
 
     // Make sure the counter was initialized correctly.
     assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
@@ -239,7 +340,8 @@ fn test_safe_panic_reset_counter_by_non_owner() {
 
     // Reset the counter using the `safe_dispatcher`, which allows us to catch errors
     match safe_dispatcher.reset_counter() {
-        // If the call somehow succeeds, it means our access control failed — so we panic the test.
+        // If the call somehow succeeds, it means our access control failed — so we panic the
+        // test.
         Result::Ok(_) => panic!("cannot reset"),
         // If the call fails (which is expected), we check that the error message matches
         // what we expect when a non-owner tries to reset the counter.
@@ -247,28 +349,68 @@ fn test_safe_panic_reset_counter_by_non_owner() {
     }
 }
 
-
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_successful_reset_counter() {
-    let (counter, _, _) = __deploy__(5);
+    let (counter, _, _, strk_dispatcher) = __deploy__(5);
 
     // get count
     let count_1 = counter.get_counter();
-
-    // assert that count = 5
     assert(count_1 == 5, 'invalid count');
 
-    // changes the caller address to OWNER
-    start_cheat_caller_address(counter.contract_address, OWNER());
+    // get balance before
+    let counter_balance_before = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_before == DEFAULT_STRK_AMOUNT, 'balance not set');
+    let owner_balance_before = strk_dispatcher.balance_of(OWNER());
+    assert(owner_balance_before == 0, 'invalid owner balance');
 
     // execute reset_counter txn
+    start_cheat_caller_address(counter.contract_address, OWNER());
+    start_cheat_caller_address(STRK(), counter.contract_address);
     counter.reset_counter();
-
-    // terminate call as OWNER
+    stop_cheat_caller_address(STRK());
     stop_cheat_caller_address(counter.contract_address);
 
+    // check count
     let count_2 = counter.get_counter();
-
-    // assert that count was successfully reset to 0
     assert(count_2 == 0, 'counter not reset');
+
+    // check balance after
+    let counter_balance_after = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_after == 0, 'balance not cleared');
+    let owner_balance = strk_dispatcher.balance_of(OWNER());
+    assert(owner_balance == counter_balance_before, 'owner balance not added');
+}
+
+#[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
+fn test_successful_reset_counter_with_zero_balance() {
+    let (counter, _, _, strk_dispatcher) = __deploy__(5);
+    transfer(counter.contract_address, STRK_TOKEN_HOLD(), DEFAULT_STRK_AMOUNT);
+    // get count
+    let count_1 = counter.get_counter();
+    assert(count_1 == 5, 'invalid count');
+
+    // get balance before
+    let counter_balance_before = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_before == 0, 'balance not cleared');
+    let owner_balance_before = strk_dispatcher.balance_of(OWNER());
+    assert(owner_balance_before == 0, 'invalid owner balance');
+
+    // execute reset_counter txn
+    start_cheat_caller_address(counter.contract_address, OWNER());
+    start_cheat_caller_address(STRK(), counter.contract_address);
+    counter.reset_counter();
+    stop_cheat_caller_address(STRK());
+    stop_cheat_caller_address(counter.contract_address);
+
+    // check count
+    let count_2 = counter.get_counter();
+    assert(count_2 == 0, 'counter not reset');
+
+    // check balance after
+    let counter_balance_after = strk_dispatcher.balance_of(counter.contract_address);
+    assert(counter_balance_after == 0, 'balance not cleared');
+    let owner_balance = strk_dispatcher.balance_of(OWNER());
+    assert(owner_balance == 0, 'unexpected owner balance');
 }

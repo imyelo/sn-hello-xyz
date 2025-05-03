@@ -13,7 +13,7 @@ openzeppelin_token = "1.0.0"
 
 [dev-dependencies]
 openzeppelin_utils = "1.0.0"
-snforge_std = "0.37.0"
+snforge_std = "0.38.2"
 
 [[target.starknet-contract]]
 casm = true
@@ -24,4 +24,4 @@ sort-module-level-items = true
 [[tool.snforge.fork]]
 name = "SEPOLIA_LATEST"
 url = "https://starknet-sepolia.public.blastapi.io/rpc/v0_7"
-block_id.tag = "latest"
+block_id.number = "742019"
