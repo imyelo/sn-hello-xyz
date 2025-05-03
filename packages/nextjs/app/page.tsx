@@ -88,6 +88,17 @@ const Home = () => {
     watch: true,
   });
 
+  const { data: resetEvents } = useScaffoldEventHistory({
+    contractName: "Counter",
+    eventName: "contracts::counter::Counter::Reset",
+    fromBlock: blockNumber
+      ? blockNumber > 50n
+        ? BigInt(blockNumber - 50)
+        : 0n
+      : 0n,
+    watch: true,
+  });
+
   const sortedEvents = useMemo(() => {
     const allEvents = [
       ...(increasedEvents || [])?.map((event) => ({
@@ -98,12 +109,16 @@ const Home = () => {
         event,
         type: "Decreased",
       })),
+      ...(resetEvents || [])?.map((event) => ({
+        event,
+        type: "Reset",
+      })),
     ];
     return allEvents.sort(
       (a, b) =>
         Number(b.event.log.block_number) - Number(a.event.log.block_number)
     );
-  }, [increasedEvents, decreasedEvents]);
+  }, [increasedEvents, decreasedEvents, resetEvents]);
 
   const handleIncrement = useCallback(() => {
     if (inputAmount && parseFloat(inputAmount) > 0) {
@@ -214,7 +229,9 @@ const Home = () => {
                         {formatAddress(event.event.parsedArgs.account)}{" "}
                         {event.type === "Increased"
                           ? "incremented"
-                          : "decremented"}{" "}
+                          : event.type === "Decreased"
+                          ? "decremented"
+                          : "reseted"}{" "}
                         the counter
                       </span>
                     </p>

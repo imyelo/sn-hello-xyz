@@ -414,3 +414,44 @@ fn test_successful_reset_counter_with_zero_balance() {
     let owner_balance = strk_dispatcher.balance_of(OWNER());
     assert(owner_balance == 0, 'unexpected owner balance');
 }
+
+#[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
+fn test_emitted_reset_event() {
+    let (counter, _, _, _) = __deploy__(5);
+    let mut spy = spy_events();
+
+    start_cheat_caller_address(counter.contract_address, OWNER());
+    counter.reset_counter();
+    stop_cheat_caller_address(counter.contract_address);
+
+    spy
+        .assert_emitted(
+            @array![
+                (
+                    counter.contract_address,
+                    Counter::Event::Reset(Counter::Reset { account: OWNER() }),
+                ),
+            ],
+        );
+
+    spy
+        .assert_not_emitted(
+            @array![
+                (
+                    counter.contract_address,
+                    Counter::Event::Increased(Counter::Increased { account: OWNER() }),
+                ),
+            ],
+        );
+
+    spy
+        .assert_not_emitted(
+            @array![
+                (
+                    counter.contract_address,
+                    Counter::Event::Decreased(Counter::Decreased { account: OWNER() }),
+                ),
+            ],
+        );
+}

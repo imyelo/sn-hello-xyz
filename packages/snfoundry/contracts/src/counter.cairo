@@ -47,6 +47,7 @@ pub mod Counter {
     pub enum Event {
         Increased: Increased,
         Decreased: Decreased,
+        Reset: Reset,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
     }
@@ -58,6 +59,11 @@ pub mod Counter {
 
     #[derive(Drop, starknet::Event)]
     pub struct Decreased {
+        pub account: ContractAddress,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Reset {
         pub account: ContractAddress,
     }
 
@@ -121,6 +127,7 @@ pub mod Counter {
 
             // Reset counter to 0
             self.counter.write(0);
+            self.emit(Reset { account: get_caller_address() });
         }
 
         fn get_win_number(self: @ContractState) -> u32 {
